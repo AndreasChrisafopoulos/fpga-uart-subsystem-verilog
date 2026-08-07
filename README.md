@@ -126,7 +126,6 @@ A successfully received byte is stored and shown on the four-digit seven-segment
 
 The `uart_channel_display` module extends the internal loopback channel with a seven-segment display subsystem.
 
-A successfully received byte is stored and displayed as two hexadecimal digits.
 
 ![UART channel with display](docs/uart_channel_display_block_diagram.png)
 
