@@ -14,7 +14,7 @@ A modular UART transmitter and receiver subsystem implemented in Verilog and dep
 - Two-flip-flop synchronization of the asynchronous `RxD` input
 - Debounced transmit-write push-button with single-cycle pulse generation
 - Internal transmitter-to-receiver loopback integration
-- Two-digit hexadecimal display of received bytes
+- Four-digit seven-segment display output with the received byte shown in the two least-significant hexadecimal digits and zeros in the two upper digits
 - Dedicated transmitter, receiver, loopback, and display integration testbenches
 - Hardware implementation and validation on a Spartan-7 FPGA
 
@@ -121,6 +121,8 @@ This configuration exercises the complete transmit and receive path without requ
 ![UART channel](docs/uart_channel_block_diagram.png)
 
 ### UART channel with display
+
+A successfully received byte is stored and shown on the four-digit seven-segment display. The received byte occupies the two least-significant hexadecimal digits, while the two upper digits display zero.
 
 The `uart_channel_display` module extends the internal loopback channel with a seven-segment display subsystem.
 
@@ -235,6 +237,8 @@ The transmitter and receiver are connected internally through the serial data pa
 
 ### Internal loopback with display
 
+It connects the transmitter output internally to the receiver input and displays successfully received data in the two least-significant hexadecimal digits of the onboard four-digit seven-segment display.
+
 Top module:
 
 ```text
@@ -304,7 +308,7 @@ The final `uart_channel_display` design was synthesized, placed, and routed in *
 | BUFGs | 2 | 32 | 6.25% |
 | MMCMs | 1 | 5 | 20.00% |
 
-The implementation is entirely LUT-and-register based and does not require block RAM or DSP resources.
+The datapath and control logic are implemented using LUTs and registers, with no block RAM or DSP resources required.
 
 ### Clock and timing summary
 
@@ -394,7 +398,7 @@ External serial communication was tested using a USB-to-UART connection and PuTT
 
 The standalone transmitter configuration was used to transmit serial data from the FPGA, while the receiver configuration was used to receive serial data and expose the decoded byte and status flags through the onboard LEDs.
 
-The integrated `uart_channel_display` configuration was also synthesized, programmed, and tested on the FPGA. In this configuration, the transmitter and receiver are connected internally and successfully received bytes are displayed as hexadecimal values on the seven-segment display.
+The integrated `uart_channel_display` configuration was also synthesized, programmed, and tested on the FPGA. In this configuration, the transmitter and receiver are connected internally and successfully received bytes are displayed in the two least-significant hexadecimal digits of the four-digit seven-segment display, with zeros shown in the two upper digits.
 
 ## Tools and hardware
 
@@ -407,8 +411,12 @@ The integrated `uart_channel_display` configuration was also synthesized, progra
 
 ## Academic context and attribution
 
-This project was developed as part of the **Digital Systems Design Laboratory** course at the **Department of Electrical and Computer Engineering, University of Thessaly** during the **Winter Semester 2025–2026**.
+This project was developed as the **second laboratory project** of the **Digital Systems Laboratory** course at the **Department of Electrical and Computer Engineering, University of Thessaly** during the **Winter Semester 2025–2026**.
 
-The RTL in this repository represents the implementation prepared for the course. The repository was later reorganized into a clearer structure for portfolio and educational review.
+The core assignment covered the design and verification of a UART subsystem consisting of a baud-rate controller, transmitter, receiver, and integrated transmitter-to-receiver channel. The RTL in this repository represents the implementation prepared and submitted for the course.
+
+As an optional extension, I integrated the UART channel with the onboard seven-segment display. The display subsystem was adapted from the driver developed for the first laboratory project so that received UART bytes could be stored and displayed in hexadecimal form.
+
+The repository was later reorganized into a clearer structure for portfolio and educational review. The original course specification defined the required functionality. Any course-provided starter or verification material, if present in the original laboratory package, is not claimed here as original work.
 
 No open-source license is currently provided. The code is shared for portfolio and educational review purposes.
