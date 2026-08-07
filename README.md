@@ -1,65 +1,414 @@
 # FPGA UART Communication Subsystem
 
-A Universal Asynchronous Receiver-Transmitter (UART) communication subsystem implemented in Verilog. This project features custom Finite State Machines (FSMs), debouncers, metastability synchronizers, and a 7-segment LED display driver. The design was deployed and tested on a Spartan-7 FPGA development board.
+A modular UART transmitter and receiver subsystem implemented in Verilog and deployed on a Boolean Board with a Xilinx Spartan-7 XC7S50-CSGA324-1 FPGA. The design includes selectable baud rates, 16× receiver oversampling, parity and framing error detection, asynchronous input synchronization, push-button debouncing, internal Tx-to-Rx loopback integration, and hexadecimal display of received bytes on a seven-segment display.
 
 ## Features
 
-* **Configurable Baud Rate:** A custom baud controller supporting dynamic rate selection for synchronized sampling.
-* **UART Transmitter (Tx):** FSM-based controller handling parallel-to-serial conversion.
-* **UART Receiver (Rx):** Features a dedicated Datapath and FSM, employing metastability synchronizers and a mid-bit oversampling technique for safe asynchronous signal reception.
-* **Error Detection:** Hardware-level parity checking (Parity Error) and Stop-bit validation (Framing Error).
-* **Hardware Integrations:** Custom debouncers for physical board inputs.
-* **Real-time Display Subsystem:** A custom 2-digit 7-segment LED driver that dynamically decodes and visualizes the transmitted/received bytes in hexadecimal format.
+- UART transmitter with FSM-based control and parallel-to-serial conversion
+- UART receiver with separate control FSM and datapath
+- 16× receiver oversampling with mid-bit sampling
+- Eight selectable baud rates from 300 to 115200 baud
+- 8-bit data transmission
+- Even parity generation and checking
+- Stop-bit validation and framing-error detection
+- Two-flip-flop synchronization of the asynchronous `RxD` input
+- Debounced transmit-write push-button with single-cycle pulse generation
+- Internal transmitter-to-receiver loopback integration
+- Two-digit hexadecimal display of received bytes
+- Dedicated transmitter, receiver, loopback, and display integration testbenches
+- Hardware implementation and validation on a Spartan-7 FPGA
 
-## System Architecture
+## UART frame format
 
-The system is highly modular, ensuring a clean separation between the datapath, control logic (FSMs), and peripheral drivers.
+The implemented UART frame contains:
 
-### Transmitter Block Diagram
-The transmitter takes an 8-bit parallel input and shifts it out serially, appending the appropriate Start, Parity, and Stop bits.
-![Transmitter Architecture](docs/tx_block_diagram.png)
+- one start bit
+- eight data bits transmitted least-significant bit first
+- one even-parity bit
+- one stop bit
+
+The transmitter computes the parity bit from the eight-bit input byte. The receiver accumulates parity across the received data bits and compares the result with the received parity bit.
+
+## Baud-rate selection
+
+A shared baud controller generates the sampling-enable pulses used by both the transmitter and receiver.
+
+| `baud_select` | Baud rate |
+|---|---:|
+| `000` | 300 |
+| `001` | 1,200 |
+| `010` | 4,800 |
+| `011` | 9,600 |
+| `100` | 19,200 |
+| `101` | 38,400 |
+| `110` | 57,600 |
+| `111` | 115,200 |
+
+The receiver uses 16× oversampling. Incoming serial data is sampled near the middle of each UART bit period using an internal four-bit sample counter.
+
+## System architecture
+
+The design separates communication control, datapath operations, synchronization, timing generation, and display functionality into individual modules.
+
+### UART transmitter
+
+The transmitter accepts an eight-bit parallel word and serializes it into a UART frame containing the start bit, data bits, parity bit, and stop bit.
+
+Transmission is controlled by an FSM with four states:
+
+- `IDLE`
+- `LOAD`
+- `SEND`
+- `DONE`
+
+A debouncer processes the physical `Tx_WR` push-button. The input is first synchronized to the 100 MHz system clock and, after remaining stable for the debounce interval, produces a clean single-cycle transmit request.
+
+![Transmitter architecture](docs/tx_block_diagram.png)
+
+### UART receiver
+
+The receiver contains four main components:
+
+- asynchronous input synchronizer
+- baud controller
+- receiver control FSM
+- receiver datapath
+
+The asynchronous `RxD` signal first passes through a two-flip-flop synchronizer before entering the receive control and datapath logic.
+
+The datapath performs 16× oversampling and samples each UART bit near its midpoint. It reconstructs the eight-bit word and checks the received parity and stop bits.
+
+The receiver generates:
+
+- `Rx_DATA`
+- `Rx_VALID`
+- `Rx_PERROR`
+- `Rx_FERROR`
+
+![Receiver architecture](docs/rx_block_diagram.png)
 
 ### Receiver FSM
-The receiver uses an oversampling technique triggered by the baud controller to accurately sample the middle of each incoming bit, ensuring data integrity.
+
+The receiver FSM controls start-bit detection, sample-counter alignment, data shifting, parity checking, and stop-bit checking.
+
 ![Receiver FSM](docs/rx_fsm.png)
 
-### UART Channel (Top-Level)
-The integration of the Tx and Rx modules into a single communication channel for hardware validation.
-![UART Channel](docs/uart_channel_block_diagram.png)
+### UART channel
 
-## Repository Structure
+The `uart_channel` module integrates the transmitter and receiver into an internal loopback configuration.
+
+The transmitter serial output is connected directly to the receiver serial input inside the module.
 
 ```text
-fpga-uart-subsystem/
-├── rtl/
-│   ├── top/       # Top-level integration (UART channel and Display subsystem)
-│   ├── tx/        # Transmitter FSM and datapath logic
-│   ├── rx/        # Receiver FSM and datapath logic
-│   ├── display/   # Seven-segment LED display drivers and decoders
-│   └── common/    # Shared utility modules (Baud controller, Synchronizer, Debouncer)
-├── tb/            # Behavioral testbenches
-├── constraints/   # FPGA pin and timing constraints (.xdc)
-└── docs/          # Block diagrams and state machine figures
+Tx_DATA
+   |
+   v
+UART Transmitter
+   |
+   | TxD
+   v
+Internal serial line
+   |
+   v
+UART Receiver
+   |
+   v
+Rx_DATA
 ```
 
-## Verification & Hardware Validation
+This configuration exercises the complete transmit and receive path without requiring an external serial connection between the two modules.
 
-### Behavioral Simulation
-The repository includes dedicated behavioral testbenches for each major subsystem. Each module (Tx, Rx, Baud Controller) includes its own testbench (`tb/`) to ensure correct isolated functionality before top-level integration.
+![UART channel](docs/uart_channel_block_diagram.png)
 
-### Hardware Execution
-The complete `uart_channel_display` top module was synthesized and programmed onto a Spartan-7 FPGA development board:
-* **Transmitter Control:** `baud_select` and `Tx_DATA` were mapped to board switches, while `Tx_EN` was mapped to a debounced push-button. A dedicated LED successfully indicated the `Tx_BUSY` state during transmission.
-* **Receiver Outputs:** Received bytes were outputted to 8 onboard LEDs. Additional LEDs accurately reflected the `Rx_VALID`, `Rx_PERROR` (Parity Error), and `Rx_FERROR` (Framing Error) flags.
-* **7-Segment Display:** The received byte was seamlessly routed to the onboard 7-segment display, rendering the hexadecimal value in real time.
-* **Serial Communication:** The FPGA was interfaced with a PC via a USB-to-UART bridge. PuTTY was utilized as the primary serial terminal. Two-way communication between the FPGA hardware and the PC terminal was established flawlessly.
+### UART channel with display
 
-## Tools
+The `uart_channel_display` module extends the internal loopback channel with a seven-segment display subsystem.
 
-* **HDL:** Verilog
-* **Synthesis & Simulation:** AMD/Xilinx Vivado
-* **Testing:** PuTTY / Serial Terminal
+A successfully received byte is stored and displayed as two hexadecimal digits.
 
-## Academic Context
+![UART channel with display](docs/uart_channel_display_block_diagram.png)
 
-This project was developed as part of the Digital Systems Design laboratory course at the Department of Electrical and Computer Engineering, University of Thessaly, during the Winter Semester 2025–2026. The RTL included in this repository represents the final implementation submitted for the course.
+## Repository structure
+
+```text
+fpga-uart-subsystem-verilog/
+├── rtl/
+│   ├── top/
+│   │   ├── uart_channel.v
+│   │   └── uart_channel_display.v
+│   ├── tx/
+│   │   └── uart_transmitter.v
+│   ├── rx/
+│   │   ├── uart_receiver.v
+│   │   ├── uart_rx_fsm.v
+│   │   └── uart_rx_datapath.v
+│   ├── common/
+│   │   ├── baud_controller.v
+│   │   ├── synchronizer.v
+│   │   └── debouncer.v
+│   └── display/
+│       ├── TwoDigitLEDdriver.v
+│       └── LEDdecoder.v
+├── tb/
+│   ├── tb_baud_controller.v
+│   ├── tb_uart_transmitter.v
+│   ├── tb_uart_receiver.v
+│   ├── tb_uart_channel.v
+│   └── tb_uart_channel_display.v
+├── constraints/
+│   ├── uart_transmitter.xdc
+│   ├── uart_receiver.xdc
+│   └── uart_channel_display.xdc
+└── docs/
+    ├── tx_block_diagram.png
+    ├── tx_fsm.png
+    ├── rx_block_diagram.png
+    ├── rx_fsm.png
+    ├── uart_channel_block_diagram.png
+    └── uart_channel_display_block_diagram.png
+```
+
+## Available configurations
+
+The repository contains separate configurations for standalone transmit, standalone receive, internal loopback, and loopback with display.
+
+### Standalone transmitter
+
+Top module:
+
+```text
+uart_transmitter
+```
+
+Constraints:
+
+```text
+constraints/uart_transmitter.xdc
+```
+
+This configuration exposes `TxD` as an external UART transmit signal.
+
+The hardware interface includes:
+
+- `Tx_DATA[7:0]` on board switches
+- `baud_select[2:0]` on board switches
+- `Tx_EN` on a board switch
+- `Tx_WR` on a push-button
+- `Tx_BUSY` on an LED
+- `TxD` on the board UART transmit connection
+
+### Standalone receiver
+
+Top module:
+
+```text
+uart_receiver
+```
+
+Constraints:
+
+```text
+constraints/uart_receiver.xdc
+```
+
+This configuration accepts an external asynchronous `RxD` signal.
+
+The hardware interface includes:
+
+- `RxD` from the board UART receive connection
+- `baud_select[2:0]` on board switches
+- `Rx_EN` on a board switch
+- `Rx_DATA[7:0]` on eight LEDs
+- `Rx_VALID` on a status LED
+- `Rx_PERROR` on a status LED
+- `Rx_FERROR` on a status LED
+
+### Internal loopback channel
+
+Integration module:
+
+```text
+uart_channel
+```
+
+The transmitter and receiver are connected internally through the serial data path.
+
+### Internal loopback with display
+
+Top module:
+
+```text
+uart_channel_display
+```
+
+Constraints:
+
+```text
+constraints/uart_channel_display.xdc
+```
+
+This is the most complete integrated configuration in the repository.
+
+It connects the transmitter output internally to the receiver input and displays successfully received data on the onboard seven-segment display.
+
+## Clocking and CDC
+
+The main UART logic operates from the 100 MHz FPGA system clock.
+
+The external `RxD` signal is asynchronous with respect to this clock. A dedicated two-flip-flop synchronizer is used before the signal reaches the receiver FSM and datapath.
+
+The physical `Tx_WR` push-button is also synchronized inside the debouncer before a clean single-cycle transmit request is generated.
+
+The seven-segment display subsystem uses an MMCM to generate a separate 5 MHz clock for display multiplexing.
+
+Received data is first stored in a register operating in the 100 MHz system-clock domain. The stored value remains stable between successful receptions while the display logic reads the corresponding hexadecimal digits.
+
+The current implementation does not include a dedicated handshake between the 100 MHz UART domain and the 5 MHz display-multiplexing domain. Because the registered display value changes only when a new valid byte is accepted and otherwise remains stable, this implementation was sufficient for the intended FPGA demonstration. A dedicated CDC handshake would be appropriate in a more general-purpose design where the transferred data could change continuously.
+
+## Vivado project setup
+
+1. Create a new RTL project in AMD/Xilinx Vivado for the `XC7S50-CSGA324-1` device.
+2. Add the required Verilog files under `rtl/`.
+3. Select the desired top module.
+4. Add the corresponding XDC file from `constraints/`.
+5. Run synthesis and implementation.
+6. Generate the bitstream.
+7. Program the Boolean Board.
+
+The supplied constraints files contain the 100 MHz input-clock constraint and the physical FPGA pin assignments used by the corresponding hardware configurations.
+
+## Target hardware
+
+- Boolean Board
+- Xilinx Spartan-7 `XC7S50-CSGA324-1`
+- 100 MHz system clock
+- onboard switches and push-buttons
+- onboard LEDs
+- onboard four-digit seven-segment display
+- UART interface for serial communication
+
+## Implementation results
+
+The final `uart_channel_display` design was synthesized, placed, and routed in **Vivado 2021.2** for the **Xilinx Spartan-7 XC7S50-CSGA324-1** device.
+
+### Resource utilization
+
+| Resource | Used | Available | Utilization |
+|---|---:|---:|---:|
+| Slice LUTs | 111 | 32,600 | 0.34% |
+| Slice Registers | 122 | 65,200 | 0.19% |
+| Slices | 41 | 8,150 | 0.50% |
+| Block RAM Tiles | 0 | 75 | 0.00% |
+| DSPs | 0 | 120 | 0.00% |
+| Bonded IOBs | 30 | 210 | 14.29% |
+| BUFGs | 2 | 32 | 6.25% |
+| MMCMs | 1 | 5 | 20.00% |
+
+The implementation is entirely LUT-and-register based and does not require block RAM or DSP resources.
+
+### Clock and timing summary
+
+| Clock domain | Frequency | Purpose |
+|---|---:|---|
+| System clock | 100.000 MHz | UART logic, baud generation, synchronization, and control |
+| Display clock | 5.000 MHz | Seven-segment display multiplexing |
+
+Post-route static timing analysis reported:
+
+| Metric | Result |
+|---|---:|
+| Setup WNS | +5.258 ns |
+| Setup TNS | 0.000 ns |
+| Hold WHS | +0.131 ns |
+| Hold THS | 0.000 ns |
+
+The 100 MHz system-clock domain achieved a setup WNS of **+5.258 ns**. The generated 5 MHz display-clock domain achieved a setup WNS of **+197.992 ns**.
+
+All user-specified timing constraints were met by the routed implementation.
+
+
+## Verification
+
+The repository includes behavioral testbenches for the baud controller, transmitter, receiver, integrated UART channel, and channel-with-display configuration.
+
+### Baud controller
+
+`tb_baud_controller.v` exercises all eight `baud_select` configurations and observes the corresponding `sample_ENABLE` pulse generation.
+
+The tested selections cover baud rates from 300 to 115200 baud.
+
+### UART transmitter
+
+`tb_uart_transmitter.v` exercises transmission of multiple data bytes and allows inspection of:
+
+- serialized `TxD`
+- transmission timing
+- `Tx_BUSY` behavior
+- repeated transmission operation
+
+This testbench is primarily intended for waveform-based inspection.
+
+### UART receiver
+
+`tb_uart_receiver.v` generates UART frames directly and contains explicit PASS or FAIL checks for:
+
+- correct byte reception
+- parity-error detection
+- framing-error detection
+
+The testbench verifies that a valid frame produces the expected `Rx_DATA` value without parity or framing errors.
+
+It also deliberately injects an incorrect parity bit and an incorrect stop bit to verify the corresponding error-detection logic.
+
+### Integrated UART channel
+
+`tb_uart_channel.v` sends four test bytes through the complete internal transmitter-to-receiver loopback path:
+
+- `0x55`
+- `0xAA`
+- `0x5A`
+- `0xC3`
+
+The testbench monitors the received byte together with the parity and framing status flags.
+
+This integration testbench is intended primarily for waveform and console-based inspection rather than automated PASS or FAIL checking.
+
+### UART channel with display
+
+`tb_uart_channel_display.v` exercises the integrated UART and seven-segment display path using the following transmitted values:
+
+- `0x12`
+- `0x34`
+- `0xAB`
+- `0xFE`
+
+This testbench is also intended primarily for integration and waveform inspection.
+
+## Hardware validation
+
+The UART subsystem was implemented and tested on the Boolean Board using the Xilinx Spartan-7 `XC7S50-CSGA324-1` FPGA.
+
+The standalone transmitter and receiver configurations provide external UART connections for communication with a PC through the board serial interface.
+
+External serial communication was tested using a USB-to-UART connection and PuTTY as the serial terminal.
+
+The standalone transmitter configuration was used to transmit serial data from the FPGA, while the receiver configuration was used to receive serial data and expose the decoded byte and status flags through the onboard LEDs.
+
+The integrated `uart_channel_display` configuration was also synthesized, programmed, and tested on the FPGA. In this configuration, the transmitter and receiver are connected internally and successfully received bytes are displayed as hexadecimal values on the seven-segment display.
+
+## Tools and hardware
+
+- Verilog HDL
+- AMD/Xilinx Vivado
+- Boolean Board
+- Xilinx Spartan-7 `XC7S50-CSGA324-1` FPGA
+- USB-to-UART serial interface
+- PuTTY or equivalent serial terminal
+
+## Academic context and attribution
+
+This project was developed as part of the **Digital Systems Design Laboratory** course at the **Department of Electrical and Computer Engineering, University of Thessaly** during the **Winter Semester 2025–2026**.
+
+The RTL in this repository represents the implementation prepared for the course. The repository was later reorganized into a clearer structure for portfolio and educational review.
+
+No open-source license is currently provided. The code is shared for portfolio and educational review purposes.
